@@ -222,10 +222,12 @@ statement deep.
   built with, so a receipt cannot present fallback vectors as Titan.
 - This is a split between two Bedrock endpoints, not a blanket outage. Agent prose
   runs on a real model, `google.gemma-4-31b` served by the bedrock-mantle endpoint,
-  which `agent/lib/model.sh` uses by default. Only embeddings fall back: classic
-  `bedrock-runtime`, the endpoint that serves Titan, is restricted on this account
-  to 0 TPM on every model, and bedrock-mantle publishes no embeddings route. So the
-  corpus stays on `local-hash-v1` while the agent voice is a live model.
+  which `agent/lib/model.sh` uses by default. Embeddings are what falls back, for
+  two separate reasons: classic `bedrock-runtime`, the endpoint that serves Titan,
+  is restricted on this account to 0 TPM on every model; and while bedrock-mantle
+  does expose a working `/v1/embeddings` route, its catalogue for this account
+  carries 55 models and not one of them is an embedding model, so the route has
+  nothing to serve. Both were verified by request, not inferred.
 - This is why a breach is scored on "returned a row belonging to another tenant"
   rather than on canary phrases. A phrase-only score reported a 35-row
   cross-tenant leak in `semantic_unfiltered` as clean, because the arbitrary
