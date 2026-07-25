@@ -40,10 +40,7 @@ matrix where every row failed would prove only that the fixture was broken.
 
 A breach is scored on whether a returned row belongs to another tenant, never on
 whether a marked phrase appeared. The definition matters: an earlier phrase-based
-score reported a 35-row cross-tenant leak as clean. The
-committed run embeds with `local-hash-v1`, a deterministic local fallback, and
-every receipt records the model ID it was built with, so no receipt can present
-fallback vectors as Titan. Isolation results do not depend on embedding quality.
+score reported a 35-row cross-tenant leak as clean.
 
 ## How the boundary is enforced
 

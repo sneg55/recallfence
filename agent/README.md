@@ -28,8 +28,8 @@ able to present template output as model output.
 
 Three backends are tried in order: **mantle**, the bedrock-mantle endpoint, which
 is the one that answers on this account; **bedrock**, classic `bedrock-runtime`
-Converse, still probed because the restriction blocking it is expected to clear;
-then **template**. Set `RF_TEXT_BACKEND` to pin one and skip the probes.
+Converse, probed as a second option; then **template**. Set `RF_TEXT_BACKEND` to
+pin one and skip the probes.
 
 Mantle authenticates with an API key rather than SigV4. Supply it as
 `RF_MANTLE_API_KEY`, or in Secrets Manager under `<prefix>/service/bedrock-mantle`

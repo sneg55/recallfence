@@ -69,10 +69,10 @@ Say the number, then say why it is the right trade: it is the same mechanism tha
 guarantees the caller never gets a short result. A judge who runs `EXPLAIN`
 themselves finds exactly what the demo already showed them.
 
-**The embedding model is the fallback, not Titan.** Every receipt records the
-model ID it was built with, so a receipt cannot present fallback vectors as
-Titan. Related: this is why a breach is scored on "returned a row belonging to
-another tenant" rather than on canary phrases.
+**Score on row ownership, not the canary phrase.** A breach is "a row belonging
+to another tenant came back", computed from the probe's own evidence. The canary
+is corroboration: a phrase-only score once reported a real cross-tenant leak as
+clean.
 
 ## Order is the argument
 

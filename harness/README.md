@@ -74,17 +74,17 @@ Bedrock is a build-time dependency **of the harness** and a run-time dependency
 of the support agent, which has to embed new content when it writes. Two paths,
 two failure modes; freezing covers only the first.
 
-## What the fallback embedder costs, precisely
+## What a non-semantic embedder changes
 
 With `local-hash-v1` the semantic probes retrieve arbitrary rows, so
-`semantic_unfiltered` scores no canary hit and the leak is only visible through
-`direct_id`. Everything structural still holds: row counts, vector width, index
-behaviour, and every clause of `passed` except the semantic one.
+`semantic_unfiltered` scores no canary hit and the leak shows through `direct_id`.
+Everything structural still holds: row counts, vector width, index behaviour, and
+every clause of `passed` except the semantic one.
 
-The scoring path itself is verified independently of the model. Standing in a
-query vector that genuinely lands on bob's policy, alice retrieves it with the
-fence down and the scorer returns `foreign_canary_hit = true`. So the semantic
-beat is waiting on Bedrock model access, not on untested code.
+The scoring path is verified independently of the model. With a query vector that
+lands on bob's policy, alice retrieves it fence-down and the scorer returns
+`foreign_canary_hit = true`, so the semantic scorer is proven regardless of which
+embedder seeded the corpus.
 
 ## Two findings this module produced
 
