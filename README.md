@@ -5,6 +5,7 @@
 [![AWS](https://img.shields.io/badge/AWS-S3_%C2%B7_Secrets_Manager_%C2%B7_IAM-232F3E)](https://aws.amazon.com/)
 [![Built with](https://img.shields.io/badge/built_with-Bash_%C2%B7_SQL-4EAA25?logo=gnubash&logoColor=white)](#quickstart)
 [![Demo](https://img.shields.io/badge/demo-live-brightgreen?logo=cloudflarepages&logoColor=white)](https://recallfence.pages.dev)
+[![Devpost](https://img.shields.io/badge/hackathon-CockroachDB_%C3%97_AWS-003E54?logo=devpost&logoColor=white)](https://cockroachdb-ai.devpost.com/)
 
 Multi-tenant agentic memory with the isolation boundary in the database rather
 than in application code.
