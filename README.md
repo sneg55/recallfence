@@ -8,9 +8,7 @@ and in a multi-tenant product that store is one forgotten `WHERE` clause away
 from serving one customer's memory to another. The usual answer is to be careful
 in application code. RecallFence puts the boundary in CockroachDB row-level
 security instead, then tries to break it on purpose and emits a hash-chained
-receipt saying whether it held. Hash-chained, not signed: there is no key and no
-signature anywhere in this project, and the tamper-evidence claims below are
-scoped to exactly what SHA-256 linkage can support.
+receipt saying whether it held.
 
 What makes that more than an assertion: a deterministic breach harness that
 probes the system from every tenant's own credentials, a repair loop that
@@ -40,6 +38,64 @@ important row in the table. The correctly scoped query was never the problem. Th
 product exists because the filter on the line above it gets forgotten, and a
 matrix where every row failed would prove only that the fixture was broken.
 
+A breach is scored on whether a returned row belongs to another tenant, never on
+whether a marked phrase appeared. The definition matters: an earlier phrase-based
+score reported a 35-row cross-tenant leak as clean. The
+committed run embeds with `local-hash-v1`, a deterministic local fallback, and
+every receipt records the model ID it was built with, so no receipt can present
+fallback vectors as Titan. Isolation results do not depend on embedding quality.
+
+## How the boundary is enforced
+
+Every caller connects with its own credentials. There is no shared admin session
+that later drops privileges, because a session that can `SET ROLE` can also
+`RESET ROLE`, and the fence would be one statement deep.
+
+```mermaid
+flowchart TB
+    subgraph callers["Every caller connects as itself"]
+        T["8 tenant roles<br/>flat, no group membership"]
+        AG["rf_agent<br/>writes the retrieval log"]
+        H["rf_harness<br/>runs the probes"]
+        AU["rf_auditor<br/>independent ground truth"]
+        RM["rf_remediation<br/>moves rows to quarantine"]
+    end
+
+    SM[["AWS Secrets Manager<br/>per-role credentials at run time"]]
+
+    P{{"5 policies under FORCE ROW LEVEL SECURITY"}}
+
+    subgraph crdb["CockroachDB Cloud"]
+        M[("memories<br/>VECTOR 1024, vector_l2_ops")]
+        R[("retrievals")]
+        Q[("quarantined_memories")]
+        RC[("receipts, append-only")]
+    end
+
+    S3[["Amazon S3"]]
+    V["audit/verify.sh --from-s3<br/>verifies with no cluster reachable"]
+
+    SM -.->|"role password"| callers
+    T --> P
+    AG --> P
+    H --> P
+    AU --> P
+    RM --> P
+    P --> M
+    P --> R
+    P --> Q
+    P --> RC
+    RC -->|"changefeed"| S3
+    S3 --> V
+```
+
+Two enforcement layers sit behind that diagram and answer in opposite ways.
+Missing a table privilege is a hard error, SQLSTATE 42501. Holding the privilege
+while matching no policy affects zero rows and raises nothing. So the tests
+compare affected-row counts against expectation instead of catching exceptions,
+and a stray `GRANT` turns a loud failure into a silent one without touching a
+single policy.
+
 ## What a pass actually requires
 
 "No leaks after the fix" is a rubber stamp: a harness that errored silently and
@@ -60,6 +116,17 @@ hold:
 Clause 1 is the one that gets forgotten. Clause 3 is the one that makes the
 result mean anything.
 
+```mermaid
+flowchart TB
+    S["Seed 8,001 memories across 8 tenants,<br/>including both contamination classes"]
+    S --> B["<b>Phase 1: baseline</b>, RLS off<br/>32 probes: 16 breaches, 43 foreign rows"]
+    B --> P2["<b>Phase 2: post_rls</b><br/>after ENABLE plus FORCE ROW LEVEL SECURITY<br/>32 probes: 0 breaches, and the auditor still sees the rows"]
+    P2 --> P3["<b>Phase 3: post_quarantine</b><br/>after the mover relocates 56 rows in one transaction<br/>32 probes: 0 breaches, and Bob's correct rows are untouched"]
+    P3 --> G{"c1 c2 c3 c4<br/>all hold?"}
+    G -->|yes| PASS["Receipt: passed"]
+    G -->|no| FAIL["Receipt: failed"]
+```
+
 ## Exposure and contamination are different problems
 
 RLS repairs **exposure**: rows that were readable and should not have been.
@@ -73,13 +140,11 @@ nothing either. Probing after the fence goes up but before the cleanup is what
 makes the two effects separable in the receipt.
 
 It also decides what quarantine refuses to touch. Bob's refund ceiling leaked at
-baseline and is correct data, correctly attributed to Bob. The defect was in
-Alice's query path. Deleting Bob's memory to fix Alice's bug would be a worse bug
-than the one being fixed, so exposure alone is never a reason to quarantine
-anything. Checkable in the committed bundle: two of Bob's rows were exposed at
-baseline, `222075f5` and `60e6eb00`, and neither appears in `quarantine`. Bob's
-rows are not absent from it wholesale, and should not be. Ten rows attributed to
-Bob were moved, every one for a provenance defect rather than for having leaked.
+baseline, but it is correct data correctly attributed to Bob, and the defect was
+in Alice's query path. Deleting Bob's memory to fix Alice's bug would be the
+worse bug, so exposure alone never triggers quarantine. The committed bundle
+shows it: rows `222075f5` and `60e6eb00` were exposed at baseline and stayed in
+`memories`, while ten other rows attributed to Bob moved for provenance defects.
 
 Contamination is a predicate on provenance, not a phrase match:
 
@@ -100,16 +165,30 @@ Tamper-evidence comes from the chain, not from the bucket. A changefeed writing
 to S3 proves delivery, not integrity: anyone who can write the bucket, including
 the changefeed's own IAM principal, can overwrite an object.
 
+```mermaid
+flowchart TB
+    R1["<b>receipt n-1</b><br/>hash H1"]
+    R2["<b>receipt n</b><br/>H2 = SHA-256 of canonical body plus H1"]
+    R3["<b>receipt n+1</b><br/>H3 = SHA-256 of canonical body plus H2"]
+    ANCHOR["<b>External anchor</b><br/>head hash kept somewhere<br/>the attacker cannot reach"]
+
+    R1 -->|"prev = H1"| R2
+    R2 -->|"prev = H2"| R3
+    R3 -.->|"audit/verify.sh --head"| ANCHOR
+```
+
 | Attack | Caught by |
 |---|---|
 | Edit a receipt body | Its own link: the stored hash no longer matches the body |
 | Edit a body *and* recompute its hash | The **next** receipt, which committed to the old hash |
+| Delete a receipt from the middle | The orphaned successor, whose `prev` names a hash no longer present |
 | Rewrite the entire suffix | Nothing internal. Only an external anchor |
 
-The third row is stated rather than papered over, and `tests/test_receipt_chain.sh`
-asserts it: a fully rewritten chain is internally consistent and verifies clean.
-What convicts it is a head hash kept somewhere the attacker cannot reach, which
-is what `audit/verify.sh --head` is for.
+A hash chain cannot detect a total rewrite on its own, and
+`tests/test_receipt_chain.sh` asserts exactly that: a fully rewritten chain is
+internally consistent and verifies clean. The head hash pinned outside the system
+is what convicts it, via `audit/verify.sh --head`. Receipts are chained, not
+signed: no key is involved anywhere.
 
 ## Quickstart
 
@@ -161,9 +240,9 @@ web/        replay dashboard, rendered from a committed snapshot
 docs/       architecture.md, three diagrams: the boundary, the proof, the receipt
 ```
 
-[`docs/architecture.md`](docs/architecture.md) has three diagrams: where the
-boundary sits, how a pass is constructed, and what the receipt is worth once
-someone else is holding it.
+[`docs/architecture.md`](docs/architecture.md) carries the same three diagrams
+with the reasoning behind each, plus `.svg` and `.png` exports for anywhere that
+cannot render Mermaid.
 
 ## CockroachDB tools and AWS services used
 
@@ -178,11 +257,10 @@ Row-level security is the boundary itself, applied in `schema/004_policies.sql`
 and asserted in `schema/005_assert_roles.sql.tmpl`, which refuses to continue if
 any managed role comes back `rolsuper`, `rolbypassrls`, or a member of `admin`.
 
-`mcp/server.py` is a read-only MCP server this project ships so an agent can
-query the breach matrix and verify a receipt. It is written against the MCP
-stdio protocol directly and is **not** CockroachDB's Cloud Managed MCP Server,
-so it is listed here for completeness rather than counted as one of the two
-required tools.
+`mcp/server.py` is a read-only MCP server shipped with this project, written
+against the MCP stdio protocol, so an agent can query the breach matrix and
+verify a receipt. It is not CockroachDB's Cloud Managed MCP Server and is not
+counted toward the two required tools.
 
 ### AWS
 
@@ -193,54 +271,10 @@ required tools.
 | **AWS IAM** | `infra/provision.sh` | Mints the changefeed's write-only principal: `ListBucket` conditioned on the prefix, and an explicit `Deny` on every delete action, so the audit sink is append-only against its own writer. |
 | **Amazon Bedrock** | `agent/lib/model.sh`, `fixtures/embed.sh` | A chat model phrases audit summaries whose facts are computed in SQL. Two endpoints answer differently here: **bedrock-mantle works** and serves `google.gemma-4-31b`, which `model.sh` uses by default; **classic `bedrock-runtime` is restricted on this account** to 0 TPM, and that is the endpoint serving Titan embeddings. `fixtures/embed.sh` targets Titan when reachable and otherwise falls back, which on this account means always. Every receipt records the model ID that produced it. |
 
-Only S3, Secrets Manager and IAM are load-bearing. Bedrock changes embedding and
-prose quality, not any result the receipt asserts.
-
-## Two enforcement layers that answer in opposite ways
-
-Worth stating because it shapes every test in this repo. Privileges are checked
-before policies:
-
-| Situation | Signal |
-|---|---|
-| No table privilege | Hard error, SQLSTATE 42501 |
-| Privilege held, no applicable policy | Zero rows affected, **no error** |
-
-So "I caught an exception" is not evidence of being blocked. The tests compare
-affected-row counts against expectation. A stray `GRANT` converts a loud failure
-into a silent one without changing a single policy, which is why the harness
-probes the evidence tables from every tenant role in every phase even though the
-privilege layer already refuses them.
-
-Tenant roles are flat, with no group memberships, so `SET ROLE` fails and
-`RESET ROLE` leaves the connection fenced. Tests connect over each role's own
-credentials rather than using `SET ROLE` from a shared admin session, because a
-session that can `SET ROLE` can also `RESET ROLE` and the fence would be one
-statement deep.
-
-## Honest status
-
-- The corpus in the committed snapshot is embedded with `local-hash-v1`, a
-  deterministic local fallback, not Amazon Titan. The fallback is unit-normalized
-  and reproducible but carries no semantic structure, so nearest-neighbour results
-  are arbitrary rather than meaningful. Every receipt records the model ID it was
-  built with, so a receipt cannot present fallback vectors as Titan.
-- This is a split between two Bedrock endpoints, not a blanket outage. Agent prose
-  runs on a real model, `google.gemma-4-31b` served by the bedrock-mantle endpoint,
-  which `agent/lib/model.sh` uses by default. Embeddings are what falls back, for
-  two separate reasons: classic `bedrock-runtime`, the endpoint that serves Titan,
-  is restricted on this account to 0 TPM on every model; and while bedrock-mantle
-  does expose a working `/v1/embeddings` route, its catalogue for this account
-  carries 55 models and not one of them is an embedding model, so the route has
-  nothing to serve. Both were verified by request, not inferred.
-- This is why a breach is scored on "returned a row belonging to another tenant"
-  rather than on canary phrases. A phrase-only score reported a 35-row
-  cross-tenant leak in `semantic_unfiltered` as clean, because the arbitrary
-  nearest neighbours carried no marked phrase. The canary phrase is still
-  recorded, as corroboration.
-- With RLS active, the vector index on `(tenant, embedding)` is not usable and
-  reads become exact full scans. That is a real cost of the boundary, measured
-  rather than hidden, and the demo says so out loud.
+S3, Secrets Manager and IAM are load-bearing: remove any one and the receipt
+cannot be delivered, the roles cannot authenticate, or the sink stops being
+append-only. Bedrock affects the wording of audit summaries and the quality of
+embeddings, never a verdict the receipt asserts.
 
 ## License
 
