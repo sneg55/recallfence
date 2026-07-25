@@ -119,7 +119,7 @@ What each attack runs into:
 | Delete a receipt from the middle | The orphaned successor, whose `prev` names a hash that is no longer present |
 | Rewrite the entire suffix | Nothing internal. Only the external anchor |
 
-The last row is the honest one, and `tests/test_receipt_chain.sh` asserts it: a
-fully rewritten chain is internally consistent and verifies clean. That is why
-`--head` exists. A verifier that could not be fooled by a total rewrite would be
-claiming something a hash chain cannot deliver on its own.
+The last row is the limit of what a chain can do alone, and
+`tests/test_receipt_chain.sh` asserts it: a fully rewritten chain is internally
+consistent and verifies clean. That is what `--head` is for. A total rewrite is
+caught only by a head hash pinned outside the system.
