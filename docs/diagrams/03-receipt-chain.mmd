@@ -1,0 +1,10 @@
+%%{init: {"flowchart": {"wrappingWidth": 460}}}%%
+flowchart TB
+    R1["<b>receipt n-1</b><br/>hash H1"]
+    R2["<b>receipt n</b><br/>H2 = SHA-256 of canonical body plus H1"]
+    R3["<b>receipt n+1</b><br/>H3 = SHA-256 of canonical body plus H2"]
+    ANCHOR["<b>External anchor</b><br/>head hash kept somewhere<br/>the attacker cannot reach"]
+
+    R1 -->|"prev = H1"| R2
+    R2 -->|"prev = H2"| R3
+    R3 -.->|"audit/verify.sh --head"| ANCHOR

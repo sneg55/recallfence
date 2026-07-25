@@ -1,0 +1,35 @@
+flowchart TB
+    subgraph callers["Callers, each with its own login"]
+        T["8 tenant roles<br/>flat, no group membership"]
+        AG["rf_agent<br/>writes the retrieval log"]
+        H["rf_harness<br/>runs the probes"]
+        AU["rf_auditor<br/>independent ground truth"]
+        RM["rf_remediation<br/>moves rows to quarantine"]
+    end
+
+    SM[["AWS Secrets Manager<br/>per-role credentials, nothing in the repo"]]
+
+    P{{"5 policies under FORCE ROW LEVEL SECURITY<br/>tenant_isolation, tenant_write, auditor_read, remediation_read, quarantine_delete"}}
+
+    subgraph crdb["CockroachDB Cloud"]
+        M[("memories<br/>VECTOR 1024, indexed vector_l2_ops")]
+        R[("retrievals")]
+        Q[("quarantined_memories")]
+        RC[("receipts, append-only")]
+    end
+
+    S3[["Amazon S3<br/>NDJSON plus resolved markers"]]
+    V["audit/verify.sh<br/>re-verifies the chain with no cluster reachable"]
+
+    SM -.->|"role password at run time"| callers
+    T --> P
+    AG --> P
+    H --> P
+    AU --> P
+    RM --> P
+    P --> M
+    P --> R
+    P --> Q
+    P --> RC
+    RC -->|"changefeed, envelope wrapped"| S3
+    S3 --> V

@@ -1,0 +1,41 @@
+-- RecallFence, step 3 of 4: one tenant role.
+--
+-- Template, applied once per synthetic tenant. apply.sh substitutes @@TENANT@@
+-- and @@TENANT_PW@@ and pipes the result to the cluster.
+--
+-- The role name IS the tenant key. The RLS policy compares `tenant =
+-- current_user`, so these must match exactly.
+--
+-- This is the single most dangerous step in the whole setup. Spike 6, on the
+-- live cluster: `ccloud cluster user create` returns a role with rolsuper=t,
+-- rolbypassrls=t and membership in admin. A tenant provisioned that way saw
+-- every other tenant's rows and could SET ROLE into them. No error, no warning,
+-- queries succeed and return data. It is the exact failure this project exists
+-- to prevent, introduced by the tool the project uses to set itself up.
+--
+-- So: create with SQL rather than the vendor CLI, revoke admin unconditionally,
+-- and then let 005_assert_roles.sql refuse to continue if the flags did not
+-- come back clean. The assertion is mandatory, not decorative, because the
+-- symptom of getting this wrong is silent and total.
+--
+-- Deliberately flat: the tenant is a member of no group role. Spike 5 showed
+-- that this is what makes the fence unconditional. `SET ROLE bob` fails with
+-- 42501 and `RESET ROLE` leaves the connection still fenced, because there is no
+-- role to assume and nothing to fall back to. A convenience group role would
+-- have made the grants below static at the cost of that property.
+
+CREATE USER IF NOT EXISTS "@@TENANT@@";
+ALTER USER "@@TENANT@@" WITH PASSWORD '@@TENANT_PW@@';
+
+REVOKE admin FROM "@@TENANT@@";
+
+-- The entire tenant-facing surface. SELECT and INSERT on one table.
+--
+-- No UPDATE, no DELETE: tenants cannot mutate or remove memories, and the
+-- quarantine mover runs as rf_remediation instead. No grant of any kind on
+-- canaries, probe_runs, probe_results, retrievals, quarantined_memories or
+-- receipts, which hold every tenant's leaked rows in plaintext. CockroachDB
+-- denies without a grant, so this holds by default, but the side_channel probe
+-- tests it in every phase anyway as a regression guard against a stray future
+-- GRANT, which is exactly the kind of change nobody reviews.
+GRANT SELECT, INSERT ON TABLE memories TO "@@TENANT@@";

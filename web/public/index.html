@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RecallFence — isolation receipt</title>
+<meta name="description" content="Multi-tenant agent memory with the isolation boundary in the database. Breach harness, repair loop, and a tamper-evident receipt.">
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap head-row">
+    <div class="brand">
+      <h1>RecallFence</h1>
+      <p class="sub">Prove your shared AI agent never remembers another customer.</p>
+    </div>
+    <div class="verdict">
+      <span class="badge badge-idle" id="verdict-badge">loading</span>
+      <div class="verdict-meta" id="verdict-meta"></div>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="replay-note" role="note">
+    <strong>This is a replay.</strong> Everything below renders from a recorded,
+    receipted run committed to the repository, not from a live query. The demo URL
+    therefore survives the cluster being paused, reclaimed or torn down.
+    Live runs are <span class="off">disabled</span>.
+  </div>
+
+  <nav class="tabs" id="tabs" role="tablist">
+    <button role="tab" data-panel="matrix" class="active">Breach matrix</button>
+    <button role="tab" data-panel="evidence">Evidence</button>
+    <button role="tab" data-panel="policy">Policy set</button>
+    <button role="tab" data-panel="quarantine">Quarantine</button>
+    <button role="tab" data-panel="receipt">Receipt</button>
+  </nav>
+
+  <main>
+    <section id="panel-matrix" class="panel" role="tabpanel">
+      <h2>Breach matrix</h2>
+      <p class="lede">
+        Every principal, every probe type, every phase. A <span class="hit-inline">HIT</span>
+        means that principal received a row belonging to another tenant, or, for
+        <code>side_channel</code>, read one of the evidence tables at all.
+      </p>
+      <div class="scroll"><table id="matrix"></table></div>
+      <div class="callout" id="matrix-note"></div>
+    </section>
+
+    <section id="panel-evidence" class="panel" hidden role="tabpanel">
+      <h2>Breach evidence</h2>
+      <p class="lede">
+        The exact rows that crossed the boundary at baseline, each with the
+        provenance that makes a breach a lineage record rather than a pass/fail bit.
+      </p>
+      <div id="evidence"></div>
+    </section>
+
+    <section id="panel-policy" class="panel" hidden role="tabpanel">
+      <h2>Policy set</h2>
+      <p class="lede">
+        The row-level security policies installed on <code>memories</code>, and the
+        exact SQL this receipt attests. Read from the schema rather than composed
+        here: a generator that wrote its own version could emit SQL the schema does
+        not contain, and that is the one thing a reviewer has to be able to rule out.
+      </p>
+      <div id="policy"></div>
+    </section>
+
+    <section id="panel-quarantine" class="panel" hidden role="tabpanel">
+      <h2>Quarantine</h2>
+      <p class="lede">
+        RLS repairs <em>exposure</em>. Quarantine repairs <em>contamination</em>.
+        Rows that were merely exposed are deliberately left in place.
+      </p>
+      <div id="quarantine"></div>
+    </section>
+
+    <section id="panel-receipt" class="panel" hidden role="tabpanel">
+      <h2>Isolation receipt</h2>
+      <p class="lede">
+        Four clauses, not one. A pass with no demonstrated baseline failure is a
+        rubber stamp, because a harness that errored silently and recorded nothing
+        also produces no breaches.
+      </p>
+      <div id="receipt"></div>
+    </section>
+  </main>
+
+  <footer>
+    <p>
+      <a href="https://github.com/sneg55/recallfence">Source</a> ·
+      MIT licensed ·
+      Built on CockroachDB row-level security and AWS.
+    </p>
+    <p class="fine" id="fine"></p>
+  </footer>
+</div>
+
+<!-- Plain scripts in dependency order rather than ES modules, so the page also
+     opens straight off the filesystem without a server. -->
+<script src="./dom.js"></script>
+<script src="./panels.js"></script>
+<script src="./app.js"></script>
+</body>
+</html>

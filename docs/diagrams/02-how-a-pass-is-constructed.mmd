@@ -1,0 +1,9 @@
+%%{init: {"flowchart": {"wrappingWidth": 560}}}%%
+flowchart TB
+    S["Seed 8,001 memories across 8 tenants,<br/>including both contamination classes"]
+    S --> B["<b>Phase 1: baseline</b>, RLS off<br/>32 probes: 16 breaches, 43 foreign rows"]
+    B --> P2["<b>Phase 2: post_rls</b><br/>after ENABLE plus FORCE ROW LEVEL SECURITY<br/>32 probes: 0 breaches, and the auditor still sees the rows"]
+    P2 --> P3["<b>Phase 3: post_quarantine</b><br/>after the mover relocates 56 rows in one transaction<br/>32 probes: 0 breaches, and Bob's correct rows are untouched"]
+    P3 --> G{"c1 c2 c3 c4<br/>all hold?"}
+    G -->|yes| PASS["Receipt: passed"]
+    G -->|no| FAIL["Receipt: failed"]

@@ -1,0 +1,18 @@
+{
+  "embedding_model": "local-hash-v1",
+  "embedding_dim": 1024,
+  "rows_per_tenant": 1000,
+  "corpus_rows": 8000,
+  "probe_limit": 5,
+  "leak": {"caller":"alice","foreign":"bob","query":"what is the maximum refund I can approve for an enterprise customer without escalating"},
+  "tenants": {
+    "alice": {"canary_id": "a91caff2-de87-eeb9-d348-0ce5787f5a26", "policy_id": "fcd5216c-be97-a0b8-ba1d-6ac68768b2cc", "canary_phrase": "purchase order PO-53292-VD"},
+    "bob": {"canary_id": "60e6eb00-8b96-1ab5-66df-eb18236b6c2c", "policy_id": "95f75066-31d0-2177-3052-404e22770717", "canary_phrase": "purchase order PO-34806-VK"},
+    "carol": {"canary_id": "880cba5b-1bc1-f4ea-f749-70e68b7a3ba6", "policy_id": "afbadc1d-9ee4-ca98-0c51-56bcb2f83a1b", "canary_phrase": "purchase order PO-44828-LZ"},
+    "dave": {"canary_id": "f66a7004-6523-7f56-057d-6fd14c3935ce", "policy_id": "f355a4a6-dc02-fa4b-ac87-4cc3eae285e7", "canary_phrase": "purchase order PO-73082-FT"},
+    "erin": {"canary_id": "8c99d499-b176-a7ab-c342-928c4750f756", "policy_id": "762a51fe-a118-8884-521c-88e6400eeb53", "canary_phrase": "purchase order PO-45993-FH"},
+    "frank": {"canary_id": "a194c848-8c84-704c-9325-185bb09a7e9d", "policy_id": "57ad9271-2846-7ad2-c76f-b0e8ce64d1a6", "canary_phrase": "purchase order PO-51364-KF"},
+    "grace": {"canary_id": "924bead1-7448-2b8f-7e65-c8000deb07dc", "policy_id": "20323f3d-6dbc-fcfd-6e32-a7c40e04b86d", "canary_phrase": "purchase order PO-47451-QG"},
+    "heidi": {"canary_id": "0a69db54-8b9a-7aef-9919-2fe005986381", "policy_id": "0354039a-5d27-c85f-4e29-2d23d38b7942", "canary_phrase": "purchase order PO-12665-ST"}
+  }
+}

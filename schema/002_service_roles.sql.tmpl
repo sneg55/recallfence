@@ -1,0 +1,143 @@
+-- RecallFence, step 2 of 4: service roles and the full grant matrix.
+--
+-- Template. apply.sh substitutes @@..._PW@@ with generated passwords and pipes
+-- the result to the cluster. The rendered SQL is never written to disk.
+--
+-- Five role classes ship in this build. Tenant roles are created separately, one
+-- per tenant, by 003_tenant_role.sql.tmpl. The other four are here:
+--
+--   rf_auditor      read-only over evidence, append-only over receipts
+--   rf_remediation  the only role in the system that can remove a memory
+--   rf_harness      writes the breach matrix (probe_runs, probe_results)
+--   rf_agent        the support agent's retrieval-log connection, and nothing more
+--
+-- rf_harness is not in the original design's list of role classes, but the
+-- design already implies it: "the harness writes probe_runs and probe_results
+-- under its own account", and the access rule that no tenant role receives any
+-- privilege on the six evidence tables.
+--
+-- rf_agent is split out from rf_harness after a code review found the reason it
+-- had to be. The support agent runs tenant-facing code and needs to append to
+-- `retrievals`, but rf_harness can also read `canaries` and `probe_results`,
+-- which hold cross-tenant evidence in plaintext. Handing the agent that
+-- credential let tenant-facing code read around the RLS boundary. rf_agent can
+-- do exactly one thing: INSERT into retrievals. Nothing to read, nothing to
+-- forge.
+--
+-- Prefixed rf_ so a synthetic tenant can never collide with a service role. The
+-- RLS policy compares `tenant = current_user`, so a tenant literally named
+-- "auditor" would otherwise be one CREATE USER away from confusion.
+--
+-- Idempotent. Safe to re-run; re-running rotates the service passwords.
+
+-- ---------------------------------------------------------------------------
+-- Roles
+-- ---------------------------------------------------------------------------
+
+CREATE USER IF NOT EXISTS rf_auditor;
+CREATE USER IF NOT EXISTS rf_remediation;
+CREATE USER IF NOT EXISTS rf_harness;
+CREATE USER IF NOT EXISTS rf_agent;
+
+ALTER USER rf_auditor     WITH PASSWORD '@@AUDITOR_PW@@';
+ALTER USER rf_remediation WITH PASSWORD '@@REMEDIATION_PW@@';
+ALTER USER rf_harness     WITH PASSWORD '@@HARNESS_PW@@';
+ALTER USER rf_agent       WITH PASSWORD '@@AGENT_PW@@';
+
+-- Spike 6: `ccloud cluster user create` returns an admin superuser with
+-- rolbypassrls. SQL CREATE USER does not, but revoking unconditionally costs
+-- nothing and makes the file correct regardless of how the role got here.
+-- 005_assert_roles.sql then refuses to continue if any of this failed to stick.
+REVOKE admin FROM rf_auditor;
+REVOKE admin FROM rf_remediation;
+REVOKE admin FROM rf_harness;
+REVOKE admin FROM rf_agent;
+
+-- ---------------------------------------------------------------------------
+-- rf_auditor
+--
+-- Reads everything the breach produced, and the ground truth over `memories`
+-- that proves the boundary hid rows rather than something having deleted them.
+-- Also the receipt writer, so it appends to `receipts`. That is the one
+-- exception to "read-only": read-only over evidence, append-only over receipts,
+-- and no UPDATE or DELETE anywhere.
+-- ---------------------------------------------------------------------------
+
+GRANT SELECT ON TABLE memories             TO rf_auditor;
+GRANT SELECT ON TABLE quarantined_memories TO rf_auditor;
+GRANT SELECT ON TABLE canaries             TO rf_auditor;
+GRANT SELECT ON TABLE probe_runs           TO rf_auditor;
+GRANT SELECT ON TABLE probe_results        TO rf_auditor;
+GRANT SELECT ON TABLE retrievals           TO rf_auditor;
+GRANT SELECT, INSERT ON TABLE receipts     TO rf_auditor;
+
+-- ---------------------------------------------------------------------------
+-- rf_remediation
+--
+-- SELECT on `memories` is not optional. Spike 2: a FOR DELETE policy alone
+-- deletes zero rows, because with no SELECT policy the role sees no rows and
+-- `DELETE ... WHERE` cannot evaluate its predicate against invisible rows.
+-- Quarantine would report success and move nothing.
+--
+-- SELECT on `retrievals` is what makes quarantine class 2 computable: candidate
+-- rows are joined to the retrieval log on session_id to find content the agent
+-- wrote into tenant A after reading a row belonging to tenant B.
+-- ---------------------------------------------------------------------------
+
+GRANT SELECT, DELETE ON TABLE memories     TO rf_remediation;
+GRANT INSERT ON TABLE quarantined_memories TO rf_remediation;
+GRANT SELECT ON TABLE retrievals           TO rf_remediation;
+
+-- ---------------------------------------------------------------------------
+-- rf_harness
+--
+-- Holds no privilege on `memories` at all, and no RLS policy names it, so it
+-- cannot read a single memory row under any query. It reaches memory only
+-- through per-tenant connections, which are fenced, and through rf_auditor for
+-- ground truth.
+--
+-- SELECT on `canaries` is required to score foreign_canary_hit.
+--
+-- UPDATE on probe_runs is for `finished_at` only, and this grant is broader than
+-- that because CockroachDB v26.2 has no column-level GRANT: `GRANT UPDATE (col)`
+-- is a syntax error. Tried and rejected by the cluster, not assumed.
+--
+-- **The trust boundary, stated plainly, because a review raised it and the
+-- narrow answer would have been misleading.** rf_harness is the measurement
+-- apparatus. It can relabel a run's phase, and it could already fabricate a run
+-- outright with INSERT, so removing UPDATE would close nothing: a compromised
+-- harness invalidates its own measurements whatever this grant says. What
+-- contains that is not this line but the separation around it:
+--
+--   * rf_harness holds no privilege on `memories`, so it cannot read the rows it
+--     would need to fabricate plausible evidence.
+--   * rf_harness cannot write `receipts`. rf_auditor does, under different
+--     credentials, and refuses inadmissible runs.
+--   * Clause 3 requires the auditor, independently, to confirm the foreign rows
+--     were still present. That check does not consult anything rf_harness wrote.
+--   * The receipt's preflight cross-checks the principal set against `canaries`,
+--     which rf_harness may read and may not write.
+--
+-- No grant on `retrievals`: the harness does not write it, rf_agent does. That
+-- REVOKE converges an already-deployed cluster; revoking a privilege not held is
+-- a harmless no-op.
+-- ---------------------------------------------------------------------------
+
+REVOKE INSERT ON TABLE retrievals FROM rf_harness;
+
+GRANT SELECT ON TABLE canaries                     TO rf_harness;
+GRANT SELECT, INSERT, UPDATE ON TABLE probe_runs   TO rf_harness;
+GRANT SELECT, INSERT ON TABLE probe_results        TO rf_harness;
+
+-- ---------------------------------------------------------------------------
+-- rf_agent
+--
+-- The support agent's second connection, alongside its fenced tenant connection.
+-- One privilege: append to `retrievals`. No SELECT on it, so a compromised agent
+-- can add noise to its own audit trail but cannot read back what other sessions
+-- retrieved. No grant on any other evidence table, so this credential, unlike
+-- rf_harness, cannot read `canaries` or `probe_results` around the tenant
+-- boundary. That separation is the whole reason rf_agent exists.
+-- ---------------------------------------------------------------------------
+
+GRANT INSERT ON TABLE retrievals                   TO rf_agent;

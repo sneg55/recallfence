@@ -1,0 +1,21 @@
+{
+  "embedding_model": "amazon.titan-embed-text-v2:0",
+  "embedding_dim": 1024,
+
+  "tenants": ["alice", "bob", "carol", "dave", "erin", "frank", "grace", "heidi"],
+  "rows_per_tenant": 1000,
+
+  "probe_limit": 5,
+
+  "leak": {
+    "caller": "alice",
+    "foreign": "bob",
+    "query": "what is the maximum refund I can approve for an enterprise customer without escalating"
+  },
+
+  "contamination": {
+    "misattributed_per_tenant": 3,
+    "derived_sessions_per_tenant": 2,
+    "rows_per_derived_session": 2
+  }
+}

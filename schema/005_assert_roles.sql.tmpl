@@ -1,0 +1,47 @@
+-- RecallFence: the provisioning-time assertion.
+--
+-- Template. apply.sh substitutes @@ROLE_LIST@@ with the quoted, comma-separated
+-- list of roles this deployment manages, then aborts if any row comes back with
+-- a verdict other than 'ok', or if fewer rows come back than roles were asked
+-- for.
+--
+-- Why this exists, and why it is not decorative. The three privileges that
+-- defeat RLS are all invisible from the application's point of view: a
+-- superuser, a role carrying rolbypassrls, and a member of admin each read every
+-- row and report no error while doing it. Two independent spikes found real
+-- roles on a real cluster that trip this check:
+--
+--   Spike 3: the default SQL user a CockroachDB Cloud Basic cluster issues is a
+--            superuser with rolbypassrls and membership in admin. Connect an
+--            application as that user and RLS silently does nothing.
+--
+--   Spike 6: `ccloud cluster user create` grants admin BY DEFAULT, so tenant
+--            roles provisioned through the vendor CLI come back as superusers
+--            with rolbypassrls. A tenant created that way saw every other
+--            tenant's rows and could SET ROLE into them.
+--
+-- The second is the worse one, because it is the path an infra script naturally
+-- takes. Getting it wrong produces no symptom at all until a tenant reads
+-- another tenant's memory, which is the exact failure this project exists to
+-- prevent, introduced by the tool the project uses to set itself up.
+--
+-- Scoped to managed roles only, deliberately. A cluster-wide check would flag
+-- the infra account, which is supposed to be an admin, and a check that cries
+-- wolf gets commented out.
+
+SELECT
+  rolname,
+  rolsuper,
+  rolbypassrls,
+  rolcanlogin,
+  pg_has_role(rolname, 'admin', 'MEMBER') AS member_of_admin,
+  CASE
+    WHEN rolsuper                                THEN 'FAIL_SUPERUSER'
+    WHEN rolbypassrls                            THEN 'FAIL_BYPASSRLS'
+    WHEN pg_has_role(rolname, 'admin', 'MEMBER') THEN 'FAIL_ADMIN_MEMBER'
+    WHEN NOT rolcanlogin                         THEN 'FAIL_CANNOT_LOGIN'
+    ELSE 'ok'
+  END AS verdict
+FROM pg_roles
+WHERE rolname IN (@@ROLE_LIST@@)
+ORDER BY rolname;

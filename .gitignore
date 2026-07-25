@@ -1,0 +1,23 @@
+.DS_Store
+*.log
+node_modules/
+__pycache__/
+.venv/
+venv/
+dist/
+build/
+.env
+.env.*
+!.env.example
+*.tfstate
+*.tfstate.*
+.terraform/
+
+# Harness self-improvement loop: signal is local and noisy, wisdom is committed.
+.harness/ledger.jsonl
+
+# Build-time embeddings. One file per distinct text, ~12KB each, so the default
+# corpus is ~94MB: derivable from fixtures/config.json plus a model call, and not
+# something to carry in git. fixtures/manifest.json is committed instead, because
+# it is small and it is what the harness actually reads.
+fixtures/cache/

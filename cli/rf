@@ -1,0 +1,145 @@
+#!/usr/bin/env bash
+# RecallFence: the command line.
+#
+#   rf status                  corpus, RLS state, receipt verdict, chain head
+#   rf matrix                  breach matrix: principal x probe, across phases
+#   rf evidence                the exact foreign rows that leaked, with provenance
+#   rf policy                  the policy set installed, and the SQL the receipt attests
+#   rf quarantine              rows moved out, with reason and lineage
+#   rf receipt                 the receipt, its four clauses, its place in the chain
+#   rf verify                  recompute the hash chain
+#   rf all                     every panel above, in demo order
+#   rf snapshot [path]         write the bundle for replay (default web/public/replay.json)
+#   rf loop <baseline> --approve   policy, rerun, quarantine, rerun, then receipt
+#
+# Global flags:
+#   --from <file>   render a saved bundle instead of querying the cluster
+#
+# Everything reads through rf_auditor. The CLI prints the same evidence as the
+# dashboard with no web dependency, which is the point: if the web layer is down,
+# broken or being graded on a paused cluster, this is the fallback that still
+# answers the question.
+#
+# Reading and rendering are separated by the bundle deliberately. `--from` renders
+# a committed snapshot with no database at all, so the same code path serves a
+# live cluster and a replay, and the two cannot drift into different stories.
+
+set -uo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$HERE/.." && pwd)"
+# shellcheck source=../schema/lib/crsql.sh
+source "$ROOT/schema/lib/crsql.sh"
+# shellcheck source=../schema/lib/creds.sh
+source "$ROOT/schema/lib/creds.sh"
+# shellcheck source=../audit/lib/sqlio.sh
+source "$ROOT/audit/lib/sqlio.sh"
+# The breach predicate itself, so the bundle scores a probe exactly as the
+# receipt's clauses do rather than with a second copy that drifts.
+# shellcheck source=../audit/lib/clauses.sh
+source "$ROOT/audit/lib/clauses.sh"
+# shellcheck source=lib/bundle.sh
+source "$HERE/lib/bundle.sh"
+# shellcheck source=lib/render.sh
+source "$HERE/lib/render.sh"
+
+die()   { printf 'error: %s\n' "$*" >&2; exit 1; }
+usage() { sed -n '2,26p' "${BASH_SOURCE[0]}" >&2; exit 1; }
+
+FROM=""
+ARGS=()
+
+# `shift 2` with only one positional left FAILS and shifts nothing, so `--from`
+# with no path would spin this loop forever on the same argument. A typo has to
+# produce a usage error, not a hang.
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --from)
+      [[ $# -ge 2 ]] || die "--from needs a path to a bundle"
+      FROM="$2"; shift 2 ;;
+    *) ARGS+=("$1"); shift ;;
+  esac
+done
+set -- "${ARGS[@]+"${ARGS[@]}"}"
+SUB="${1:-}"; shift || true
+
+# The bundle is fetched at most once per invocation and cached, so `rf all` makes
+# one round trip rather than six, and every panel in it describes the same instant.
+BUNDLE=""
+bundle() {
+  [[ -n "$BUNDLE" ]] && { printf '%s' "$BUNDLE"; return 0; }
+  if [[ -n "$FROM" ]]; then
+    [[ -f "$FROM" ]] || die "no such bundle: $FROM"
+    BUNDLE="$(cat "$FROM")"
+  else
+    crsql_require || exit 1
+    BUNDLE="$(bundle_from_db "${RF_AUDITOR_URL:-$(url_for rf_auditor service)}")" \
+      || die "could not read the cluster"
+    [[ "$(jq -r '.receipt // "null"' <<<"$BUNDLE")" != null ]] \
+      || die "no receipt yet. Run audit/receipt.sh emit first."
+  fi
+  printf '%s' "$BUNDLE"
+}
+
+panel() { local title="$1" fn="$2"; hdr "$title"; bundle | "$fn"; }
+
+cmd_snapshot() {
+  local out="${1:-$ROOT/web/public/replay.json}"
+  mkdir -p "$(dirname "$out")"
+  # Rendered through jq -S so a re-export with no underlying change produces no
+  # diff. A snapshot that churns on every run is one nobody reviews before
+  # committing it.
+  bundle | jq -S '.' >"$out" || die "could not write $out"
+  printf 'wrote %s (%s)\n' "$out" "$(wc -c <"$out" | tr -d ' ') bytes"
+  printf 'receipt %s, passed=%s\n' \
+    "$(jq -r .receipt_meta.receipt_id "$out")" "$(jq -r .receipt.passed "$out")"
+}
+
+cmd_verify() {
+  # Delegated rather than reimplemented. A second copy of the chain check would be
+  # a second thing to keep correct, and this is the claim least worth risking that.
+  if [[ -n "$FROM" ]]; then
+    die "verify needs the receipts themselves, not a rendered bundle. Use audit/verify.sh --from-file <ndjson>."
+  fi
+  "$ROOT/audit/verify.sh"
+}
+
+cmd_loop() {
+  local base="${1:-}" approve="${2:-}"
+  [[ -n "$base" && "$approve" == "--approve" ]] || die "usage: rf loop <baseline-run-id> --approve"
+  "$ROOT/repair/loop.sh" "$base" --approve || die "repair loop failed"
+  hdr "receipt"
+  "$ROOT/audit/receipt.sh" emit "$base" \
+    "$("$ROOT/cli/rf" _lastrun post_rls)" "$("$ROOT/cli/rf" _lastrun post_quarantine)"
+}
+
+# Internal: the most recent finished run for a phase. Used by `loop` to hand the
+# receipt writer the runs it just produced.
+cmd_lastrun() {
+  crsql_require || exit 1
+  local url; url="${RF_AUDITOR_URL:-$(url_for rf_auditor service)}"
+  sql_scalar "$url" "SELECT run_id FROM probe_runs
+                      WHERE phase = $(lit "$1") AND finished_at IS NOT NULL
+                      ORDER BY started_at DESC LIMIT 1;"
+}
+
+case "$SUB" in
+  status)     panel "status"     render_status ;;
+  matrix)     panel "breach matrix"           render_matrix ;;
+  evidence)   panel "breach evidence"         render_evidence ;;
+  policy)     panel "policy set"              render_policy ;;
+  quarantine) panel "quarantine"              render_quarantine ;;
+  receipt)    panel "isolation receipt"       render_receipt ;;
+  all)
+    panel "status"           render_status
+    panel "breach matrix"    render_matrix
+    panel "breach evidence"  render_evidence
+    panel "quarantine"       render_quarantine
+    panel "isolation receipt" render_receipt
+    ;;
+  verify)     cmd_verify ;;
+  snapshot)   cmd_snapshot "$@" ;;
+  loop)       cmd_loop "$@" ;;
+  _lastrun)   cmd_lastrun "$@" ;;
+  *) usage ;;
+esac

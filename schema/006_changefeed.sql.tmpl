@@ -1,0 +1,43 @@
+-- RecallFence: the audit sink (graft 2).
+--
+-- Template. apply.sh substitutes @@SINK_URI@@, built from RF_S3_BUCKET,
+-- RF_S3_PREFIX and the scoped IAM key fetched from Secrets Manager. The rendered
+-- SQL is never written to disk, because the URI carries a live secret access key.
+--
+-- Spike 4, on the live cluster:
+--
+--   * Changefeeds into an external sink work on the Basic tier. No enterprise
+--     upgrade needed for this build.
+--   * Implicit credentials are refused outright:
+--       ERROR: implicit credentials disallowed for s3 due to
+--              --external-io-disable-implicit-credentials flag
+--     There is no instance-profile path on Cloud. The key goes in the URI, which
+--     is exactly why it comes from Secrets Manager and never from the repo.
+--   * Delivery is in seconds, as NDJSON, one object per resolved window.
+--   * The changefeed principal can be denied s3:DeleteObject and still work, so
+--     the sink is append-only to the writer as well as to everyone else.
+--   * An idle changefeed still writes RESOLVED markers every 10s, so silence in
+--     the bucket means the feed died rather than nothing having happened.
+--
+-- The bucket is not what makes the record tamper-evident. The hash chain is:
+-- receipts.receipt_hash digests the body plus prev_receipt_hash, so altering any
+-- earlier receipt breaks every later one, and that property survives an attacker
+-- with write access to S3. Spike 4 verified a three-receipt chain against the
+-- delivered object.
+
+-- No `SET CLUSTER SETTING kv.rangefeed.enabled` here.
+--
+-- On CockroachDB Cloud that setting is operator-managed and already on, and
+-- attempting it fails with "setting kv.rangefeed.enabled is only settable by the
+-- operator" (42501). Because statements are piped in as one batch, that error
+-- aborted the batch and the changefeed was never created. It is a self-hosted
+-- step that does not apply here.
+
+CREATE CHANGEFEED FOR TABLE receipts
+  INTO '@@SINK_URI@@'
+  WITH
+    format = json,
+    envelope = wrapped,
+    updated,
+    resolved = '10s',
+    min_checkpoint_frequency = '10s';
