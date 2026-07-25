@@ -7,8 +7,10 @@ An agent that remembers across sessions has to store what it learned somewhere,
 and in a multi-tenant product that store is one forgotten `WHERE` clause away
 from serving one customer's memory to another. The usual answer is to be careful
 in application code. RecallFence puts the boundary in CockroachDB row-level
-security instead, then tries to break it on purpose and emits a signed receipt
-saying whether it held.
+security instead, then tries to break it on purpose and emits a hash-chained
+receipt saying whether it held. Hash-chained, not signed: there is no key and no
+signature anywhere in this project, and the tamper-evidence claims below are
+scoped to exactly what SHA-256 linkage can support.
 
 What makes that more than an assertion: a deterministic breach harness that
 probes the system from every tenant's own credentials, a repair loop that
@@ -17,8 +19,9 @@ third party can verify without trusting this repo or the bucket it is stored in.
 
 ## The result
 
-Measured on a live CockroachDB Cloud cluster, 8 tenants, 8,000 seeded memories,
-`VECTOR(1024)` embeddings, 4 probe types run under each tenant's own login:
+Measured on a live CockroachDB Cloud cluster, 8 tenants, 8,001 seeded memories
+(7,945 remain in `memories` once quarantine moves 56), `VECTOR(1024)` embeddings,
+4 probe types run under each tenant's own login:
 
 ```
   principal  probe                baseline  post_rls  post_quarantine
@@ -73,8 +76,10 @@ It also decides what quarantine refuses to touch. Bob's refund ceiling leaked at
 baseline and is correct data, correctly attributed to Bob. The defect was in
 Alice's query path. Deleting Bob's memory to fix Alice's bug would be a worse bug
 than the one being fixed, so exposure alone is never a reason to quarantine
-anything. Verified, not asserted: after the mover ran, Bob's rows are still in
-`memories` and absent from `quarantined_memories`.
+anything. Checkable in the committed bundle: two of Bob's rows were exposed at
+baseline, `222075f5` and `60e6eb00`, and neither appears in `quarantine`. Bob's
+rows are not absent from it wholesale, and should not be. Ten rows attributed to
+Bob were moved, every one for a provenance defect rather than for having leaked.
 
 Contamination is a predicate on provenance, not a phrase match:
 
@@ -133,7 +138,7 @@ No cluster needed to see the recorded result or to exercise the chain:
 
 ```bash
 ./cli/rf --from web/public/replay.json all
-./tests/test_receipt_chain.sh                 # 11 cases, hermetic
+./tests/test_receipt_chain.sh                 # 18 cases, hermetic
 ```
 
 **Schema order is load-bearing.** Tables, then roles, then the fixture loader,
@@ -166,7 +171,7 @@ someone else is holding it.
 
 | Tool | Where | What it does here |
 |---|---|---|
-| **Distributed vector indexing** | `schema/001_tables.sql` | `VECTOR(1024)` on `memories` and `quarantine`, indexed `ON memories (tenant, embedding vector_l2_ops)`. Backs the `semantic_unfiltered` and `semantic_filtered` probes, and produced the measured finding that under `FORCE ROW LEVEL SECURITY` the index stops being usable and retrieval degrades to an exact full scan. |
+| **Distributed vector indexing** | `schema/001_tables.sql` | `VECTOR(1024)` on `memories` and `quarantined_memories`, indexed `ON memories (tenant, embedding vector_l2_ops)`. Backs the `semantic_unfiltered` and `semantic_filtered` probes, and produced the measured finding that under `FORCE ROW LEVEL SECURITY` the index stops being usable and retrieval degrades to an exact full scan. |
 | **ccloud CLI (agent-ready)** | `schema/apply.sh`, `schema/lib/crsql.sh` | Resolves how to reach the cluster and drives schema application non-interactively. `schema/lib/crsql.sh` falls back to a containerised client on machines with no native binary. |
 
 Row-level security is the boundary itself, applied in `schema/004_policies.sql`
@@ -183,10 +188,10 @@ required tools.
 
 | Service | Where | What it does here |
 |---|---|---|
-| **Amazon S3** | `schema/006_changefeed.sql.tmpl`, `audit/verify.sh` | A CockroachDB changefeed streams the `receipts` table to S3 as NDJSON with `resolved` markers, so silence in the bucket means the feed died rather than nothing having happened. `audit/verify.sh` re-verifies the whole hash chain straight from the bucket with no cluster reachable. |
+| **Amazon S3** | `schema/006_changefeed.sql.tmpl`, `audit/verify.sh` | A CockroachDB changefeed streams the `receipts` table to S3 as NDJSON with `resolved` markers, so silence in the bucket means the feed died rather than nothing having happened. `audit/verify.sh --from-s3` re-verifies the whole hash chain straight from the bucket with no cluster reachable; plain `audit/verify.sh` reads the database instead. |
 | **AWS Secrets Manager** | `schema/apply.sh`, `tests/`, `agent/` | Every role's credentials are fetched at run time. Tests connect over each role's own credentials rather than `SET ROLE` from a shared admin session. Nothing credential-shaped is in the repo. |
 | **AWS IAM** | `infra/provision.sh` | Mints the changefeed's write-only principal: `ListBucket` conditioned on the prefix, and an explicit `Deny` on every delete action, so the audit sink is append-only against its own writer. |
-| **Amazon Bedrock** | `agent/lib/model.sh`, `fixtures/embed.sh` | Titan Text Embeddings V2 for the corpus, and a chat model for phrasing audit summaries that are computed in SQL. Two endpoints that answer differently here: **classic `bedrock-runtime` is restricted on this account**, while the **bedrock-mantle** endpoint serves text generation and is what `model.sh` prefers. Mantle has no embeddings route, so the corpus runs a deterministic local fallback either way. Every receipt records the model ID that produced it. |
+| **Amazon Bedrock** | `agent/lib/model.sh`, `fixtures/embed.sh` | A chat model phrases audit summaries whose facts are computed in SQL. Two endpoints answer differently here: **bedrock-mantle works** and serves `google.gemma-4-31b`, which `model.sh` uses by default; **classic `bedrock-runtime` is restricted on this account** to 0 TPM, and that is the endpoint serving Titan embeddings. `fixtures/embed.sh` targets Titan when reachable and otherwise falls back, which on this account means always. Every receipt records the model ID that produced it. |
 
 Only S3, Secrets Manager and IAM are load-bearing. Bedrock changes embedding and
 prose quality, not any result the receipt asserts.

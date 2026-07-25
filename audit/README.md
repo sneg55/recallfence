@@ -13,7 +13,7 @@ audit/verify.sh --from-file f.ndjson     # from a changefeed export, no DB
 audit/verify.sh --from-s3                # from the delivered S3 objects
 audit/verify.sh --head <hash>            # also pin the head to an external anchor
 
-tests/test_receipt_chain.sh              # 11 cases, no cluster needed
+tests/test_receipt_chain.sh              # 18 cases, no cluster needed
 ```
 
 Run against the live cluster: a two-link chain over the real baseline /
