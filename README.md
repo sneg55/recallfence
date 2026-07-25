@@ -1,5 +1,11 @@
 # RecallFence
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![CockroachDB](https://img.shields.io/badge/CockroachDB-row--level_security-6933FF?logo=cockroachlabs&logoColor=white)](https://www.cockroachlabs.com/docs/stable/row-level-security)
+[![AWS](https://img.shields.io/badge/AWS-S3_%C2%B7_Secrets_Manager_%C2%B7_IAM-232F3E)](https://aws.amazon.com/)
+[![Built with](https://img.shields.io/badge/built_with-Bash_%C2%B7_SQL-4EAA25?logo=gnubash&logoColor=white)](#quickstart)
+[![Demo](https://img.shields.io/badge/demo-live-brightgreen?logo=cloudflarepages&logoColor=white)](https://recallfence.pages.dev)
+
 Multi-tenant agentic memory with the isolation boundary in the database rather
 than in application code.
 
