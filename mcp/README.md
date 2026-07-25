@@ -60,7 +60,7 @@ asserts the reason a thing failed rather than only that it did.
 
 ## Relation to the Cloud Managed MCP Server
 
-The design notes a CockroachDB Cloud Managed MCP Server as a possible third named
-tool. That depends on a vendor spike that has not been run, so this is the
-concrete, dependency-free surface that makes the MCP claim real today. If the
-managed offering lands, it layers alongside this rather than replacing it.
+This is not CockroachDB's Cloud Managed MCP Server; it is a self-contained one
+this project ships, and it is not counted toward the two required CockroachDB
+tools. Those are the distributed vector index and the ccloud CLI. This server is
+an extra surface that makes the auditor read path available to any MCP client.

@@ -26,7 +26,8 @@ It reports, honestly:
   so it is checked rather than assumed.
 - **AWS**: reachable, and it *warns* when running as the account root rather than
   pretending that is fine.
-- **Secrets**: the twelve expected secrets are present.
+- **Secrets**: the expected role and changefeed secrets are present in Secrets
+  Manager.
 - **S3 sink**: bucket reachable, versioning on, and Object Lock present or absent
   with the reason. Absent is a warning, not a failure, because tamper-evidence
   comes from the hash chain and not the bucket.
@@ -68,25 +69,25 @@ live. So the script refreshes the snapshot from the cluster first, and if the
 cluster is reachable it refuses to deploy a snapshot whose receipt is not the
 newest one in the database.
 
-## The Lambda handler
+## Why the harness stays a CLI
 
-The harness is a CLI runner with a thin Lambda handler on top, a deliberate
-scope decision. The same `harness/run.sh` runs locally and
-deployed, so iteration does not go through a deploy and the demo does not depend
-on one working. Packaging is a container-image Lambda carrying a SQL client; it
-is off the critical path because the CLI already prints the same evidence and the
-demo runs from the snapshot. It is not built here yet, and that is a deliberate
-ordering choice rather than an omission.
+`harness/run.sh` is a CLI runner, not a deployed service. Iteration never goes
+through a deploy, the demo renders from a committed snapshot, and the CLI prints
+the same evidence the dashboard does. Putting it behind a Lambda would add a
+packaging step to the critical path and buy nothing this project needs.
 
-## Standing security follow-ups
+## Credential handling
 
-These are environment hygiene, tracked here so they are not lost:
+Every credential these scripts touch is fetched from Secrets Manager at run time
+and none is written to disk: `schema/apply.sh` renders SQL templates in memory
+and pipes them to the cluster, because a rendered changefeed statement carries a
+live access key.
 
-- The AWS CLI currently runs as the account **root**. A scoped IAM user with only
-  the permissions these scripts need is the right state before the repo goes
-  public. `doctor.sh` warns on this every run.
-- The changefeed access key is long-lived. It lives only in Secrets Manager and
-  the sink URI is never written to disk, but it should be rotated before
-  submission.
-- The cluster admin password should be rotated or the cluster treated as
-  disposable before the repo is public.
+`doctor.sh` warns when the AWS CLI is authenticated as the account root. The
+scripts need only S3 write, Secrets Manager read, and changefeed setup, so a
+scoped IAM user is the safer principal to run them under; the warning names root
+because a wide credential is the opposite of what this project argues for.
+
+The cluster and AWS account behind the recorded run are disposable demo
+infrastructure. The receipt does not depend on either surviving: `audit/verify.sh
+--from-file` re-verifies a delivered chain with nothing reachable at all.

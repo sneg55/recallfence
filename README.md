@@ -244,6 +244,12 @@ docs/       architecture.md, three diagrams: the boundary, the proof, the receip
 with the reasoning behind each, plus `.svg` and `.png` exports for anywhere that
 cannot render Mermaid.
 
+Comments in the schema and harness cite numbered spikes. Those were six
+experiments run against a live cluster before the build, each settling one
+question the code now depends on, such as whether an RLS policy disables the
+vector index or what privileges `ccloud` hands a new user. Every citation states
+its finding inline, so the comment stands on its own.
+
 ## CockroachDB tools and AWS services used
 
 ### CockroachDB

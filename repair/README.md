@@ -32,9 +32,9 @@ The defect was in Alice's query path. Deleting Bob's memory to fix Alice's bug
 would be a worse bug than the one being fixed, so exposure alone is never a
 reason to quarantine anything.
 
-Verified rather than asserted: after the mover ran, bob's policy row and bob's
-canary row are both still in `memories` and neither appears in
-`quarantined_memories`.
+Checkable in the committed bundle: after the mover ran, bob's exposed refund row
+(`60e6eb00`) is still in `memories` and does not appear in `quarantined_memories`.
+Ten other rows attributed to bob did move, each for a provenance defect.
 
 ## What counts as contaminated
 

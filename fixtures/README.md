@@ -4,8 +4,8 @@ The corpus, the canaries, and the contamination the repair engine exists to
 clean up. Runs between `schema/apply.sh roles` and `schema/apply.sh policies`.
 
 Loaded and verified against the live CockroachDB Cloud Basic cluster: 8 tenants,
-1000 rows each, 8000 distinct texts, all seven fixture checks passing, and
-`tests/test_policies.sh` still 33/33 with the corpus in place.
+8,001 memories seeded (7,945 remain after quarantine moves 56), all eight fixture
+checks passing, and `tests/test_policies.sh` 42/42 with the corpus in place.
 
 ## Running it
 
@@ -140,7 +140,7 @@ auditor sees both.
 | `embed.sh` | Two backends, on-disk cache, parallel fill |
 | `lib/corpus.sh` | What text exists: canaries, policies, filler pools |
 | `lib/plan.sh` | Which rows exist, and which are deliberately contaminated |
-| `lib/verify.sh` | The seven assertions |
+| `lib/verify.sh` | The eight assertions |
 
 ## Implementation notes worth keeping
 
